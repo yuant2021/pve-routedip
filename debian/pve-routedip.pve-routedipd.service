@@ -1,0 +1,12 @@
+[Unit]
+Description=Proxmox VE Routed IP daemon
+Wants=pve-cluster.service
+After=pve-cluster.service network.target
+
+[Service]
+ExecStart=/usr/sbin/pve-routedipd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

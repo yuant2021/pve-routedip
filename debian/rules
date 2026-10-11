@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/pve-routedip
+
+override_dh_installsystemd:
+	dh_installsystemd --name=pve-routedipd

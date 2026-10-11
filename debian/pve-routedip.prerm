@@ -1,0 +1,18 @@
+#!/bin/sh
+
+set -e
+
+#DEBHELPER#
+
+case "$1" in
+    remove|deconfigure)
+        # pve-routedipd is stopped by now: plug tap-only devices back into their
+        # bridges and remove all routes and gateway addresses we installed
+        if [ -d /run/systemd/system ]; then
+            pve-routedip cleanup || true
+        fi
+        /usr/share/pve-routedip/index-patch revert || true
+        ;;
+esac
+
+exit 0

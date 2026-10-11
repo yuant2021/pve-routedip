@@ -1,0 +1,28 @@
+Source: pve-routedip
+Section: admin
+Priority: optional
+Maintainer: yuant <me@yuant.cc>
+Build-Depends: debhelper-compat (= 13), libpve-common-perl (>= 9.0)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: pve-routedip
+Architecture: all
+Depends: iproute2,
+         libpve-cluster-perl,
+         libpve-common-perl (>= 9.0),
+         pve-manager (>= 9.0),
+         qemu-server (>= 9.0),
+         ${misc:Depends},
+         ${perl:Depends},
+Description: routed IPs for Proxmox VE virtual machines
+ Routes IPv4 and IPv6 addresses and networks of any prefix length to the
+ network devices of virtual machines. The host side gateway addresses are
+ configurable; in tap-only mode the tap device is not inserted into the bridge
+ at all and becomes a point-to-point L3 link to the guest.
+ .
+ Routes follow running guests: they are installed on the node the guest runs
+ on, moved on live migration and updated immediately on configuration changes,
+ ready to be picked up by a routing daemon such as BIRD (protocol 150).
+ .
+ Adds a Routed IP page to the Datacenter and VM views of the web interface.

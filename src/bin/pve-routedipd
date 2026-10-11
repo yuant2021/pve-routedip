@@ -1,0 +1,16 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use PVE::SafeSyslog;
+
+use PVE::RoutedIP::Daemon;
+
+$ENV{PATH} = '/sbin:/bin:/usr/sbin:/usr/bin';
+
+initlog('pve-routedipd');
+
+PVE::RoutedIP::Daemon::run();
+
+exit(0);

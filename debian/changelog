@@ -1,0 +1,7 @@
+pve-routedip (1.0.0) trixie; urgency=medium
+
+  * Initial release: routed IPv4/IPv6 addresses and networks of any prefix
+    length for Proxmox VE VMs, tap-only mode, configurable host gateway,
+    live migration hand-over, instant apply, web UI pages.
+
+ -- yuant <me@yuant.cc>  Sun, 11 Oct 2026 12:53:00 +0800

@@ -1,0 +1,22 @@
+#!/bin/sh
+
+set -e
+
+undivert() {
+    dpkg-divert --package pve-routedip --remove --rename \
+        --divert "$1.pve-routedip-orig" "$1" >/dev/null
+}
+
+case "$1" in
+    remove|abort-install|disappear)
+        undivert /usr/share/perl5/PVE/Network.pm
+        undivert /usr/share/perl5/PVE/API2.pm
+        ;;
+    purge)
+        rm -rf /run/pve-routedip
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,21 @@
+#!/bin/sh
+
+set -e
+
+# pve-routedip ships wrappers for these modules, the originals are diverted
+# next to them and loaded by the wrappers (see src/divert/).
+divert() {
+    dpkg-divert --package pve-routedip --add --rename \
+        --divert "$1.pve-routedip-orig" "$1" >/dev/null
+}
+
+case "$1" in
+    install|upgrade)
+        divert /usr/share/perl5/PVE/Network.pm
+        divert /usr/share/perl5/PVE/API2.pm
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
