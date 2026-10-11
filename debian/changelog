@@ -1,3 +1,11 @@
+pve-routedip (1.1.0) trixie; urgency=medium
+
+  * Add a per network device rp_filter switch: strict reverse path filtering
+    (rp_filter=1) on tap-only devices, with net.ipv4.conf.all.rp_filter lowered
+    to 0 while needed and re-applied after sysctl reloads.
+
+ -- yuant <me@yuant.cc>  Sun, 11 Oct 2026 13:48:56 +0800
+
 pve-routedip (1.0.0) trixie; urgency=medium
 
   * Initial release: routed IPv4/IPv6 addresses and networks of any prefix

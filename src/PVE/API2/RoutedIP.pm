@@ -192,14 +192,11 @@ __PACKAGE__->register_method({
             my $conf = $all->{$vmid} or next;
             my $guest = $guests->{$vmid};
             for my $netid (sort { ($a =~ s/^net//r) <=> ($b =~ s/^net//r) } keys $conf->{nics}->%*) {
-                my $nic = $conf->{nics}->{$netid};
                 my $entry = {
+                    PVE::RoutedIP::Config::nic_api_data($conf->{nics}->{$netid})->%*,
                     vmid => $vmid + 0,
                     net => $netid,
-                    cidr => join(';', $nic->{cidr}->@*),
-                    'tap-only' => $nic->{'tap-only'},
                 };
-                $entry->{$_} = $nic->{$_} for grep { defined($nic->{$_}) } qw(gateway4 gateway6);
                 if ($guest) {
                     $entry->{node} = $guest->{node};
                 } else {

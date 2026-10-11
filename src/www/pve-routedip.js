@@ -50,8 +50,19 @@ PVE.routedip.Utils = {
     },
 
     renderTapOnly: function (value, metaData, record) {
-        if (record && !record.data.routed && record.data.routed !== undefined) {
+        if (record.data.routed === false) {
             return '';
+        }
+        return Proxmox.Utils.format_boolean(value);
+    },
+
+    // only applied to tap-only devices
+    renderRpFilter: function (value, metaData, record) {
+        if (record.data.routed === false) {
+            return '';
+        }
+        if (!record.data['tap-only']) {
+            return '-';
         }
         return Proxmox.Utils.format_boolean(value);
     },
@@ -82,10 +93,19 @@ PVE.routedip.Utils = {
                 return Ext.htmlEncode(value ?? '');
         }
         let res = `<i class="fa fa-fw ${icon}"></i> ${text}`;
+        let tips = [];
         if (record.data.error) {
             let error = Ext.htmlEncode(record.data.error);
-            metaData.tdAttr = `data-qtip="${Ext.htmlEncode(error)}"`;
+            tips.push(error);
             res += `: ${error}`;
+        }
+        if (record.data.warning) {
+            let warning = Ext.htmlEncode(record.data.warning);
+            tips.push(warning);
+            res += `<br><i class="fa fa-fw fa-exclamation-triangle warning"></i> ${warning}`;
+        }
+        if (tips.length) {
+            metaData.tdAttr = `data-qtip="${Ext.htmlEncode(tips.join('<br>'))}"`;
         }
         return res;
     },
@@ -131,10 +151,12 @@ Ext.define('pve-routedip-nic', {
         'state',
         'device',
         'error',
+        'warning',
         'digest',
         { name: 'routed', type: 'boolean' },
         { name: 'missing', type: 'boolean' },
         { name: 'tap-only', type: 'boolean' },
+        { name: 'rp-filter', type: 'boolean' },
     ],
     idProperty: 'net',
 });
@@ -149,6 +171,7 @@ Ext.define('pve-routedip-cluster-nic', {
         'gateway4',
         'gateway6',
         { name: 'tap-only', type: 'boolean' },
+        { name: 'rp-filter', type: 'boolean' },
         { name: 'orphan', type: 'boolean' },
         {
             name: 'id',
@@ -192,6 +215,10 @@ Ext.define('PVE.routedip.NicInputPanel', {
             }
         }
         values['tap-only'] = values['tap-only'] ? 1 : 0;
+        // not submitted while disabled (tap-only off), the stored value stays
+        if (values['rp-filter'] !== undefined) {
+            values['rp-filter'] = values['rp-filter'] ? 1 : 0;
+        }
 
         return values;
     },
@@ -214,6 +241,19 @@ Ext.define('PVE.routedip.NicInputPanel', {
                 fieldLabel: gettext('Tap only'),
                 boxLabel: gettext('Do not insert the tap device into the bridge'),
                 uncheckedValue: 0,
+                listeners: {
+                    change: function (field, value) {
+                        me.down('field[name=rp-filter]').setDisabled(!value);
+                    },
+                },
+            },
+            {
+                xtype: 'proxmoxcheckbox',
+                name: 'rp-filter',
+                fieldLabel: 'rp_filter',
+                boxLabel: gettext('Strict reverse path filter (IPv4), only routed source addresses'),
+                uncheckedValue: 0,
+                disabled: true,
             },
             {
                 xtype: 'textareafield',
@@ -392,6 +432,7 @@ Ext.define('PVE.routedip.NicEdit', {
                 me.inputPanel.setValues({
                     cidr: data.cidr ?? '',
                     'tap-only': data['tap-only'] ?? 0,
+                    'rp-filter': data['rp-filter'] ?? 0,
                     gateway4: data.gateway4 ?? '',
                     gateway6: data.gateway6 ?? '',
                 });
@@ -490,6 +531,12 @@ Ext.define('PVE.routedip.GuestPanel', {
                     dataIndex: 'tap-only',
                     width: 80,
                     renderer: PVE.routedip.Utils.renderTapOnly,
+                },
+                {
+                    header: 'rp_filter',
+                    dataIndex: 'rp-filter',
+                    width: 80,
+                    renderer: PVE.routedip.Utils.renderRpFilter,
                 },
                 {
                     header: gettext('Routed IPs'),
@@ -701,6 +748,12 @@ Ext.define('PVE.routedip.ClusterNicGrid', {
                     dataIndex: 'tap-only',
                     width: 80,
                     renderer: Proxmox.Utils.format_boolean,
+                },
+                {
+                    header: 'rp_filter',
+                    dataIndex: 'rp-filter',
+                    width: 80,
+                    renderer: PVE.routedip.Utils.renderRpFilter,
                 },
                 {
                     header: gettext('Routed IPs'),

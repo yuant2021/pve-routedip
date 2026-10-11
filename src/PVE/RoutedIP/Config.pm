@@ -188,6 +188,16 @@ my $nic_properties = {
         default => 0,
         optional => 1,
     },
+    'rp-filter' => {
+        type => 'boolean',
+        description => "Strict reverse path filtering (rp_filter=1, IPv4 only) on the tap"
+            . " device: the guest may only use source addresses routed to this network device."
+            . " Only effective together with tap-only. While in use on a node, its"
+            . " net.ipv4.conf.all.rp_filter is lowered to 0, as the kernel applies the maximum"
+            . " of 'all' and the device value.",
+        default => 0,
+        optional => 1,
+    },
     gateway4 => {
         type => 'string',
         format => 'pve-routedip-gateway4',
@@ -205,6 +215,9 @@ my $nic_properties = {
 sub nic_properties {
     return { map { $_ => {$nic_properties->{$_}->%*} } keys %$nic_properties };
 }
+
+# boolean NIC settings, stored only when enabled
+our @NIC_FLAGS = ('tap-only', 'rp-filter');
 
 my $option_properties = {
     gateway4 => {
@@ -245,7 +258,7 @@ sub parse_nic {
     my $nic = PVE::JSONSchema::parse_property_string($nic_properties, $value);
 
     $nic->{cidr} = parse_cidr_list($nic->{cidr});
-    $nic->{'tap-only'} = $nic->{'tap-only'} ? 1 : 0;
+    $nic->{$_} = $nic->{$_} ? 1 : 0 for @NIC_FLAGS;
     for my $gw (qw(gateway4 gateway6)) {
         $nic->{$gw} = canonical_ip($nic->{$gw}) if defined($nic->{$gw});
     }
@@ -262,9 +275,22 @@ sub print_nic {
     } else {
         delete $data->{cidr};
     }
-    delete $data->{'tap-only'} if !$data->{'tap-only'};
+    for my $flag (@NIC_FLAGS) {
+        delete $data->{$flag} if !$data->{$flag};
+    }
 
     return PVE::JSONSchema::print_property_string($data, $nic_properties);
+}
+
+# API representation of a parsed NIC (see nic_properties)
+sub nic_api_data {
+    my ($nic) = @_;
+
+    my $res = { cidr => join(';', $nic->{cidr}->@*) };
+    $res->{$_} = $nic->{$_} ? 1 : 0 for @NIC_FLAGS;
+    $res->{$_} = $nic->{$_} for grep { defined($nic->{$_}) } qw(gateway4 gateway6);
+
+    return $res;
 }
 
 # the key: value config format shared by both files

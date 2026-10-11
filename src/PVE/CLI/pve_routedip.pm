@@ -37,7 +37,7 @@ __PACKAGE__->register_method({
         items => {
             type => 'object',
             properties => {
-                type => { type => 'string', enum => ['route', 'address', 'tap-only'] },
+                type => { type => 'string', enum => ['route', 'address', 'tap-only', 'sysctl'] },
                 value => { type => 'string' },
                 device => { type => 'string' },
             },
@@ -57,10 +57,19 @@ __PACKAGE__->register_method({
         }
         for my $tap (sort keys PVE::RoutedIP::Runtime::list_markers()->%*) {
             my $master = PVE::RoutedIP::Runtime::iface_master($tap);
+            my $rpf = PVE::RoutedIP::Runtime::effective_rp_filter($tap);
             push @$res, {
                 type => 'tap-only',
-                value => $master ? "ERROR: plugged into $master" : 'not bridged',
+                value => $master ? "ERROR: plugged into $master" : "not bridged, rp_filter=$rpf",
                 device => $tap,
+            };
+        }
+        if (defined(my $orig = PVE::RoutedIP::Runtime::rp_filter_all_saved())) {
+            my $cur = PVE::RoutedIP::Runtime::rp_filter_value('all');
+            push @$res, {
+                type => 'sysctl',
+                value => "net.ipv4.conf.all.rp_filter=$cur (was $orig)",
+                device => 'all',
             };
         }
 
@@ -118,7 +127,10 @@ my $print_status = sub {
 my $print_list = sub {
     my ($data, $schema, $options) = @_;
     PVE::CLIFormatter::print_api_result(
-        $data, $schema, ['vmid', 'net', 'node', 'tap-only', 'cidr', 'gateway4', 'gateway6'], $options,
+        $data,
+        $schema,
+        ['vmid', 'net', 'node', 'tap-only', 'rp-filter', 'cidr', 'gateway4', 'gateway6'],
+        $options,
     );
 };
 
@@ -126,7 +138,12 @@ my $print_vm = sub {
     my ($data, $schema, $options) = @_;
     my $routed = [grep { $_->{routed} } @$data];
     PVE::CLIFormatter::print_api_result(
-        $routed, $schema, ['net', 'bridge', 'tap-only', 'cidr', 'gateways', 'device', 'state', 'error'],
+        $routed,
+        $schema,
+        [
+            'net', 'bridge', 'tap-only', 'rp-filter', 'cidr', 'gateways', 'device', 'state',
+            'error', 'warning',
+        ],
         $options,
     );
 };

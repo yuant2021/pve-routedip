@@ -15,6 +15,12 @@ Proxmox VE 9 的 Routed IP 插件：把任意长度的 IPv4 / IPv6 地址或网�
   只有存在对应地址族路由时才会配置该族网关。
 - **tap MAC**：tap-only 的 tap 在所有节点上使用同一个 MAC（默认 `fe:ff:ff:ff:ff:ff`，可修改），
   虚拟机迁移后网关的邻居缓存仍然有效，不会断流。
+- **rp_filter 开关**（按网卡，仅对 tap-only 生效）：开启后该 tap 的 `net.ipv4.conf.<tap>.rp_filter=1`
+  （严格反向路径过滤），虚拟机只能以路由给该网卡的地址作为 IPv4 源地址，伪造源地址的包被宿主丢弃。
+  内核按 `max(conf/all, conf/<tap>)` 取值，而 pve-firewall 把 `net.ipv4.conf.all.rp_filter` 设为 2，
+  所以节点上有 tap 需要严格过滤时，插件把 `all` 降为 0（其它接口自身的值仍是 2，行为不变），
+  不再需要时改回原值；`sysctl --system`、udev 给新设备套用的默认值把它们改回 2 时，一秒内重新设置。
+  只管 IPv4，内核没有 IPv6 的 rp_filter。
 - **即时更新**：Web 界面/API/CLI 修改后立即应用到运行中的虚拟机（包括 tap-only 的开启与关闭，
   关闭时 tap 会被重新插回其配置的网桥）；其它节点上的改动由 `pve-routedipd` 在 1 秒内同步。
 - **迁移**：在线迁移时源节点在目标恢复运行前撤掉路由，目标节点在虚拟机恢复运行前装上路由。
@@ -33,7 +39,7 @@ Proxmox VE 9 的 Routed IP 插件：把任意长度的 IPv4 / IPv6 地址或网�
 
 ```sh
 make deb                      # 需要 debhelper、libpve-common-perl
-apt install ./pve-routedip_1.0.0_all.deb
+apt install ./pve-routedip_1.1.0_all.deb
 ```
 
 安装后 pvedaemon、pveproxy 等由 PVE 自身的 `pve-api-updates` 触发器自动重载，刷新浏览器即可看到新页面。
@@ -66,11 +72,11 @@ sysctl -w net.ipv4.ip_forward=1 net.ipv6.conf.all.forwarding=1
 命令行：
 
 ```sh
-pve-routedip set 100 net0 --cidr '203.0.113.10;2001:db8:10::/64' --tap-only 1
+pve-routedip set 100 net0 --cidr '203.0.113.10;2001:db8:10::/64' --tap-only 1 --rp-filter 1
 pve-routedip show 100            # 本节点上的状态
 pve-routedip list                # 集群内全部路由网卡
 pve-routedip options set --gateway4 100.64.0.1
-pve-routedip status              # 本节点上已安装的路由/地址/tap-only 设备
+pve-routedip status              # 本节点上已安装的路由/地址/tap-only 设备（含 rp_filter）
 pve-routedip delete 100 net0
 ```
 
@@ -87,7 +93,7 @@ API：`/cluster/routedip/options`、`/cluster/routedip/vms`、
 
 ```
 /etc/pve/routedip/cluster.cfg     gateway4 / gateway6 / gateway-mac
-/etc/pve/routedip/<vmid>.cfg      net0: cidr=203.0.113.10/32;2001:db8:10::/64,tap-only=1
+/etc/pve/routedip/<vmid>.cfg      net0: cidr=203.0.113.10/32;2001:db8:10::/64,rp-filter=1,tap-only=1
 ```
 
 虚拟机删除 60 秒后其配置由 `pve-routedipd` 自动清理。
@@ -109,6 +115,7 @@ API：`/cluster/routedip/options`、`/cluster/routedip/vms`、
 
 - 仅支持 QEMU 虚拟机（LXC 容器使用 veth，不在范围内）。
 - tap-only 网卡绕过网桥，PVE 防火墙的虚拟机规则（基于网桥）对其不生效。
+- rp_filter 开关只对 tap-only 网卡生效，且只过滤 IPv4；非 tap-only 网卡的流量在共享网桥上做路由判断，不做设置。
 - 非 tap-only 模式下，网关地址配置在共享网桥上；迁移后虚拟机侧的网关邻居缓存取决于各节点网桥 MAC 是否一致。
 - 运行中切换 tap-only 会改变网关所在的二层设备（MAC 也随之变化），虚拟机的邻居缓存过期前
   （实测 IPv4 约 15 秒）该网卡会短暂不通；增删路由网段与在线迁移不会中断。

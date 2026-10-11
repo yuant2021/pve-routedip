@@ -29,6 +29,7 @@ my $PROTO = $PVE::RoutedIP::Config::PROTO;
 
 our $STATE_DIR = '/run/pve-routedip';
 our $MARKER_DIR = "$STATE_DIR/tap-only";
+our $RP_FILTER_ALL_STATE = "$STATE_DIR/rp_filter_all";
 our $LOCK_FILE = '/run/lock/pve-routedip.lck';
 
 # also print errors to STDERR (task logs), the daemon only uses syslog
@@ -157,6 +158,72 @@ sub sysctl_set {
     open(my $fh, '>', $path) or die "unable to open '$path' - $!\n";
     print {$fh} "$value\n" or die "unable to write '$path' - $!\n";
     close($fh) or die "unable to write '$path' - $!\n";
+}
+
+sub rp_filter_value {
+    my ($dev) = @_;
+    my $value = PVE::Tools::file_read_firstline("/proc/sys/net/ipv4/conf/$dev/rp_filter") // '';
+    return $value =~ m/^([0-2])$/ ? $1 : 0;
+}
+
+# value a freshly created interface gets, restored when we stop enforcing
+sub default_rp_filter {
+    return rp_filter_value('default');
+}
+
+# the kernel uses the maximum of conf/all and conf/<dev> (0 off, 1 strict, 2 loose)
+sub effective_rp_filter {
+    my ($dev) = @_;
+    my ($all, $own) = (rp_filter_value('all'), rp_filter_value($dev));
+    return $all > $own ? $all : $own;
+}
+
+# original conf/all/rp_filter value, if we lowered it
+sub rp_filter_all_saved {
+    my $orig = PVE::Tools::file_read_firstline($RP_FILTER_ALL_STATE) // '';
+    return $orig =~ m/^([0-2])$/ ? $1 : undef;
+}
+
+# Strict rp_filter on a device only works while conf/all/rp_filter is not above 1,
+# pve-firewall sets it to 2. While a tap-only device needs strict filtering, lower
+# it to 0 (all other interfaces keep their own value, 2 on Proxmox VE) and put the
+# saved value back once nothing needs it anymore.
+sub rp_filter_all_update {
+    my ($needed) = @_;
+
+    my $cur = rp_filter_value('all');
+
+    if ($needed) {
+        return if $cur <= 1;
+        if (!defined(rp_filter_all_saved())) {
+            make_state_dir();
+            PVE::Tools::file_set_contents($RP_FILTER_ALL_STATE, "$cur\n");
+        }
+        sysctl_set(4, 'all', 'rp_filter', 0);
+        log_info("lowered net.ipv4.conf.all.rp_filter from $cur to 0 for strict rp_filter on"
+            . " tap-only devices, other interfaces keep their own value");
+        return;
+    }
+
+    my $orig = rp_filter_all_saved() // return;
+    # only if nobody changed it in the meantime
+    if ($cur == 0 && $orig != 0) {
+        sysctl_set(4, 'all', 'rp_filter', $orig);
+        log_info("restored net.ipv4.conf.all.rp_filter to $orig");
+    }
+    unlink($RP_FILTER_ALL_STATE) or $!{ENOENT} or die "unable to remove '$RP_FILTER_ALL_STATE' - $!\n";
+}
+
+# New devices get the sysctl.d defaults (rp_filter=2 on Proxmox VE) applied by udev
+# asynchronously. Let that happen first, so it does not override our value.
+sub udev_settle {
+    eval {
+        PVE::Tools::run_command(
+            ['/usr/bin/udevadm', 'settle', '--timeout=5'],
+            outfunc => sub { },
+            errfunc => sub { },
+        );
+    };
 }
 
 sub random_mac {
@@ -345,6 +412,7 @@ sub nic_plan {
     if ($plan->{taponly}) {
         $plan->{dev} = $tap;
         $plan->{mac} = $opts->{'gateway-mac'};
+        $plan->{rpfilter} = $nic->{'rp-filter'} ? 1 : 0;
         my $mtu = $net ? $net->{mtu} : undef;
         ($plan->{mtu}) = ($mtu // '') =~ m/^(\d+)$/ if $mtu && $mtu > 1;
         $plan->{v6} = (grep { PVE::RoutedIP::Config::cidr_family($_) == 6 } $nic->{cidr}->@*)
@@ -386,6 +454,9 @@ sub taponly_setup {
         PVE::Network::disable_ipv6($tap);
     }
 
+    sysctl_set(4, $tap, 'rp_filter', $plan->{rpfilter} ? 1 : default_rp_filter());
+    rp_filter_all_update(1) if $plan->{rpfilter};
+
     marker_set($tap);
 }
 
@@ -405,6 +476,7 @@ sub taponly_revert {
     }
 
     PVE::Network::disable_ipv6($tap);
+    sysctl_set(4, $tap, 'rp_filter', default_rp_filter());
     ip_link_set($tap, 'address', random_mac());
     marker_clear($tap);
 }
@@ -553,6 +625,8 @@ sub nic_remove_routes {
 # right before the guest is resumed (hook_resume).
 sub hook_taponly_plug {
     my ($vmid, $idx, $nic, $rate) = @_;
+
+    udev_settle() if $nic->{'rp-filter'};
 
     with_lock(sub {
         my $opts = PVE::RoutedIP::Config::effective_options();
@@ -768,6 +842,12 @@ sub reconcile_locked {
         eval { route_set($cidr, $want->{dev}, $cur_routes->{$cidr}) };
         push @$errors, "$want->{owner}: $@" if $@;
     }
+
+    # keep conf/all/rp_filter lowered as long as a tap-only device filters strictly
+    # (also those of migrations in flight, set up by the hooks)
+    my $strict = grep { rp_filter_value($_) == 1 } keys list_markers()->%*;
+    eval { rp_filter_all_update($strict) };
+    push @$errors, $@ if $@;
 }
 
 ## uninstall
@@ -802,6 +882,9 @@ sub cleanup_all {
             eval { addr_del($addr->@{qw(ip len dev)}) };
             push @$errors, $@ if $@;
         }
+
+        eval { rp_filter_all_update(0) };
+        push @$errors, $@ if $@;
     });
 
     log_err($_) for @$errors;
@@ -832,6 +915,9 @@ sub vm_status {
         my $tap = "tap${vmid}i$idx";
         my $st = { tap => iface_exists($tap) ? 1 : 0 };
         $res->{$netid} = $st;
+
+        $st->{warning} = "rp_filter is only applied to tap-only devices"
+            if $nic->{'rp-filter'} && !$nic->{'tap-only'};
 
         my $net = $qconf ? PVE::RoutedIP::Config::parse_qemu_net($qconf->{$netid}) : undef;
         if (!$net || !$net->{bridge}) {
@@ -871,6 +957,11 @@ sub vm_status {
             $st->{error} = "missing routes: " . join(', ', @missing);
         } else {
             $st->{state} = 'active';
+        }
+
+        if ($plan->{rpfilter} && (my $rpf = effective_rp_filter($tap)) != 1) {
+            $st->{warning} = "effective rp_filter is $rpf, not strict"
+                . " (net.ipv4.conf.all.rp_filter=" . rp_filter_value('all') . ")";
         }
     }
 

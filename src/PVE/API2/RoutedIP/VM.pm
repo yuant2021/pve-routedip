@@ -91,6 +91,7 @@ __PACKAGE__->register_method({
                     description => "Device the routes point to.",
                 },
                 error => { type => 'string', optional => 1 },
+                warning => { type => 'string', optional => 1 },
                 digest => get_standard_option('pve-config-digest'),
                 PVE::RoutedIP::Config::nic_properties()->%*,
             },
@@ -122,16 +123,13 @@ __PACKAGE__->register_method({
             }
 
             if (my $nic = $rconf->{nics}->{$netid}) {
-                $entry->{routed} = 1;
-                $entry->{cidr} = join(';', $nic->{cidr}->@*);
-                $entry->{'tap-only'} = $nic->{'tap-only'};
-                $entry->{$_} = $nic->{$_} for grep { defined($nic->{$_}) } qw(gateway4 gateway6);
+                $entry = { %$entry, PVE::RoutedIP::Config::nic_api_data($nic)->%*, routed => 1 };
                 $entry->{gateways} = join(
                     ' ', map { "$_->[0]/$_->[1]" } PVE::RoutedIP::Config::nic_gateways($opts, $nic)->@*,
                 );
 
                 my $st = $status->{$netid} // {};
-                $entry->{$_} = $st->{$_} for grep { defined($st->{$_}) } qw(state device error);
+                $entry->{$_} = $st->{$_} for grep { defined($st->{$_}) } qw(state device error warning);
                 if ($status_err) {
                     $entry->{state} = 'error';
                     $entry->{error} = $status_err =~ s/\s+$//r;
@@ -174,15 +172,12 @@ __PACKAGE__->register_method({
         my ($param) = @_;
 
         my $rconf = PVE::RoutedIP::Config::load_vm_config($param->{vmid});
-        my $res = { digest => $rconf->{digest} };
+        my $nic = $rconf->{nics}->{ $param->{net} };
 
-        if (my $nic = $rconf->{nics}->{ $param->{net} }) {
-            $res->{cidr} = join(';', $nic->{cidr}->@*);
-            $res->{'tap-only'} = $nic->{'tap-only'};
-            $res->{$_} = $nic->{$_} for grep { defined($nic->{$_}) } qw(gateway4 gateway6);
-        }
-
-        return $res;
+        return {
+            ($nic ? PVE::RoutedIP::Config::nic_api_data($nic)->%* : ()),
+            digest => $rconf->{digest},
+        };
     },
 });
 
@@ -241,7 +236,7 @@ __PACKAGE__->register_method({
             my $rconf = PVE::RoutedIP::Config::load_vm_config($vmid);
             PVE::RoutedIP::Config::assert_digest($rconf, $digest);
 
-            my $nic = $rconf->{nics}->{$netid} // { cidr => [], 'tap-only' => 0 };
+            my $nic = $rconf->{nics}->{$netid} // { cidr => [] };
 
             for my $key (PVE::Tools::split_list($delete)) {
                 raise_param_exc({ delete => "unknown option '$key'" }) if !$known->{$key};
@@ -249,8 +244,6 @@ __PACKAGE__->register_method({
                     if defined($param->{$key});
                 if ($key eq 'cidr') {
                     $nic->{cidr} = [];
-                } elsif ($key eq 'tap-only') {
-                    $nic->{'tap-only'} = 0;
                 } else {
                     delete $nic->{$key};
                 }
@@ -260,7 +253,9 @@ __PACKAGE__->register_method({
                 $nic->{cidr} = eval { PVE::RoutedIP::Config::parse_cidr_list($param->{cidr}) };
                 raise_param_exc({ cidr => $@ }) if $@;
             }
-            $nic->{'tap-only'} = $param->{'tap-only'} ? 1 : 0 if defined($param->{'tap-only'});
+            for my $flag (@PVE::RoutedIP::Config::NIC_FLAGS) {
+                $nic->{$flag} = $param->{$flag} ? 1 : 0 if defined($param->{$flag});
+            }
             for my $key (qw(gateway4 gateway6)) {
                 $nic->{$key} = PVE::RoutedIP::Config::canonical_ip($param->{$key})
                     if defined($param->{$key});

@@ -40,12 +40,16 @@ sub signature {
 
     $add_file->($PVE::RoutedIP::Config::CLUSTER_CFG);
 
+    # sysctl reloads reset these, see PVE::RoutedIP::Runtime::rp_filter_all_update()
+    $sha->add('rp_filter:' . PVE::RoutedIP::Runtime::rp_filter_value('all') . "\0");
+
     my $taps = PVE::RoutedIP::Runtime::local_taps();
     my %vmids;
     for my $tap (sort keys %$taps) {
         my $master = PVE::RoutedIP::Runtime::iface_master($tap) // '';
         my $up = PVE::RoutedIP::Runtime::iface_is_up($tap) ? 1 : 0;
-        $sha->add("$tap:$master:$up\0");
+        my $rpf = PVE::RoutedIP::Runtime::rp_filter_value($tap);
+        $sha->add("$tap:$master:$up:$rpf\0");
         $vmids{ $taps->{$tap}->{vmid} } = 1;
     }
 

@@ -57,29 +57,31 @@ subtest 'overlap' => sub {
 
 subtest 'NIC property string' => sub {
     my $nic = PVE::RoutedIP::Config::parse_nic(
-        'cidr=203.0.113.9/24;2001:db8::9/64;203.0.113.0/24,tap-only=1,gateway6=FE80::0001',
+        'cidr=203.0.113.9/24;2001:db8::9/64;203.0.113.0/24,tap-only=1,rp-filter=1,gateway6=FE80::0001',
     );
     is_deeply($nic->{cidr}, ['203.0.113.0/24', '2001:db8::/64'], 'canonicalized, deduplicated');
     is($nic->{'tap-only'}, 1, 'tap-only');
+    is($nic->{'rp-filter'}, 1, 'rp-filter');
     is($nic->{gateway6}, 'fe80::1', 'gateway canonicalized');
 
     my $raw = PVE::RoutedIP::Config::write_vm_config_string({
         nics => {
             net10 => $nic,
-            net2 => { cidr => ['198.51.100.1/32'], 'tap-only' => 0 },
+            net2 => { cidr => ['198.51.100.1/32'], 'tap-only' => 0, 'rp-filter' => 0 },
             net3 => { cidr => [], 'tap-only' => 0 },
         },
     });
     is(
         $raw,
         "net2: cidr=198.51.100.1/32\n"
-            . "net10: cidr=203.0.113.0/24;2001:db8::/64,gateway6=fe80::1,tap-only=1\n",
-        'written sorted by index, empty NIC dropped',
+            . "net10: cidr=203.0.113.0/24;2001:db8::/64,gateway6=fe80::1,rp-filter=1,tap-only=1\n",
+        'written sorted by index, disabled flags and empty NIC dropped',
     );
 
     my $conf = PVE::RoutedIP::Config::parse_vm_config('test', $raw);
     is_deeply([sort keys $conf->{nics}->%*], ['net10', 'net2'], 'read back');
     is_deeply($conf->{nics}->{net10}, $nic, 'roundtrip');
+    is($conf->{nics}->{net2}->{'rp-filter'}, 0, 'flag defaults to off');
 
     eval { PVE::RoutedIP::Config::parse_nic('cidr=203.0.113.1/40') };
     ok($@, 'invalid CIDR in NIC rejected');
