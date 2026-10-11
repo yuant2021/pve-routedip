@@ -1,3 +1,10 @@
+pve-routedip (1.1.1) trixie; urgency=medium
+
+  * web UI: keep the gateway column of the VM panel readable, wrap long state
+    messages, do not show the VMID sort marker on the name column.
+
+ -- yuant <me@yuant.cc>  Sun, 11 Oct 2026 14:01:26 +0800
+
 pve-routedip (1.1.0) trixie; urgency=medium
 
   * Add a per network device rp_filter switch: strict reverse path filtering

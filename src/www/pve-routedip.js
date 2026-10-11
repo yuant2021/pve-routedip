@@ -542,12 +542,14 @@ Ext.define('PVE.routedip.GuestPanel', {
                     header: gettext('Routed IPs'),
                     dataIndex: 'cidr',
                     flex: 2,
+                    minWidth: 160,
                     renderer: PVE.routedip.Utils.renderCidrs,
                 },
                 {
                     header: gettext('Gateway'),
                     dataIndex: 'gateways',
                     flex: 1,
+                    minWidth: 150,
                     renderer: (v) => PVE.routedip.Utils.renderCidrs(v),
                 },
                 {
@@ -560,6 +562,8 @@ Ext.define('PVE.routedip.GuestPanel', {
                     header: gettext('State'),
                     dataIndex: 'state',
                     flex: 2,
+                    minWidth: 150,
+                    cellWrap: true,
                     renderer: PVE.routedip.Utils.renderState,
                 },
             ],
@@ -724,13 +728,14 @@ Ext.define('PVE.routedip.ClusterNicGrid', {
                 },
                 {
                     header: gettext('Name'),
-                    dataIndex: 'vmid',
+                    // not a model field: sorting by VMID must not mark this column
+                    dataIndex: 'name',
                     flex: 1,
                     sortable: false,
-                    renderer: (vmid, meta, rec) =>
+                    renderer: (value, meta, rec) =>
                         rec.data.orphan
                             ? `<i>${gettext('deleted')}</i>`
-                            : Ext.htmlEncode(guestName(vmid)),
+                            : Ext.htmlEncode(guestName(rec.data.vmid)),
                 },
                 {
                     header: gettext('Node'),

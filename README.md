@@ -39,7 +39,7 @@ Proxmox VE 9 的 Routed IP 插件：把任意长度的 IPv4 / IPv6 地址或网�
 
 ```sh
 make deb                      # 需要 debhelper、libpve-common-perl
-apt install ./pve-routedip_1.1.0_all.deb
+apt install ./pve-routedip_1.1.1_all.deb
 ```
 
 安装后 pvedaemon、pveproxy 等由 PVE 自身的 `pve-api-updates` 触发器自动重载，刷新浏览器即可看到新页面。
