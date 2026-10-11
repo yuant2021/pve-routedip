@@ -31,7 +31,7 @@ Proxmox VE 9 的 Routed IP 插件：把任意长度的 IPv4 / IPv6 地址或网�
 - **可安装、可卸载**：标准 deb 包。卸载时把 tap-only 的 tap 插回网桥、删除插件添加的全部路由和地址，
   并恢复被替换的 PVE 文件。
 
-不处理 proxy ARP / proxy NDP，也不生成 BIRD 配置。
+不处理 proxy ARP / proxy NDP，也不生成 BIRD 配置（附有示例，见下文）。
 
 ## 安装
 
@@ -39,7 +39,7 @@ Proxmox VE 9 的 Routed IP 插件：把任意长度的 IPv4 / IPv6 地址或网�
 
 ```sh
 make deb                      # 需要 debhelper、libpve-common-perl
-apt install ./pve-routedip_1.1.1_all.deb
+apt install ./pve-routedip_1.1.2_all.deb
 ```
 
 安装后 pvedaemon、pveproxy 等由 PVE 自身的 `pve-api-updates` 触发器自动重载，刷新浏览器即可看到新页面。
@@ -88,6 +88,23 @@ API：`/cluster/routedip/options`、`/cluster/routedip/vms`、
 
 插件添加的路由和地址都带协议号 `150`（`/etc/iproute2/rt_protos.d/pve-routedip.conf` 中命名为
 `routedip`），位于 main 表。BIRD 的 kernel 协议开启 `learn` 后可用 `krt_source = 150` 过滤。
+
+示例配置见 [`examples/bird.conf`](examples/bird.conf)（安装后位于
+`/usr/share/doc/pve-routedip/examples/bird.conf`），BIRD 2 和 BIRD 3 都能直接使用：
+
+- kernel 协议开启 `learn`，只导入 `krt_source = 150` 的路由；`export none`，不往内核写任何路由，
+  否则从别的节点学到的同一前缀会和本节点虚拟机的路由抢；
+- 经 BGP（IPv4、IPv6 各一个会话）只宣告落在 `ROUTED_V4` / `ROUTED_V6` 范围内的前缀，下一跳为本节点；
+- 所有节点用同一份配置（router id 取自各节点 vmbr0 的地址，必须互不相同），每个节点只宣告自己
+  正在运行的虚拟机，在线迁移后宣告随路由一起转移。
+
+```sh
+apt install bird2
+cp /usr/share/doc/pve-routedip/examples/bird.conf /etc/bird/bird.conf
+# 修改标记 ADAPT 的地方：router id、ROUTED_V4/ROUTED_V6、AS 号、上游邻居地址
+systemctl restart bird
+birdc show route export upstream4    # 本节点正在宣告的路由
+```
 
 ## 配置文件
 

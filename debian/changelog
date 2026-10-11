@@ -1,3 +1,11 @@
+pve-routedip (1.1.2) trixie; urgency=medium
+
+  * Add a BIRD 2/3 example configuration (examples/bird.conf, installed to
+    /usr/share/doc/pve-routedip/examples): learn the routedip routes from the
+    kernel, announce them via BGP, never write routes to the kernel.
+
+ -- yuant <me@yuant.cc>  Mon, 12 Oct 2026 01:32:21 +0800
+
 pve-routedip (1.1.1) trixie; urgency=medium
 
   * web UI: keep the gateway column of the VM panel readable, wrap long state
